@@ -1,0 +1,442 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pixel 2 XL 小服务器 · 刷机与搭建全记录</title>
+<style>
+  :root {
+    --bg: #fbfaf7; --paper: #ffffff; --ink: #1c1b19; --muted: #6f6c66; --line: #e6e3dc;
+    --accent: #c8231b; --ok: #1d7f47; --warn-bg: #fff6e5; --warn-line: #e8a33b;
+    --tip-bg: #eef7f1; --tip-line: #3a9a63; --code-bg: #16181d; --code-ink: #e6e6e6;
+    --code-cm: #7f8896; --kbd: #f0eee9; color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #111110; --paper: #191917; --ink: #ecebe6; --muted: #9a978f; --line: #2c2b28;
+      --accent: #ff4d40; --ok: #42c97c; --warn-bg: #2a2214; --warn-line: #c98a2a;
+      --tip-bg: #14251b; --tip-line: #2f8a55; --code-bg: #0b0c0f; --kbd: #26251f; color-scheme: dark; }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.7 -apple-system, "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif; }
+  .layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); max-width: 1240px; margin: 0 auto; }
+  nav { position: sticky; top: 0; align-self: start; max-height: 100vh; overflow-y: auto;
+    padding: 28px 18px 28px 24px; border-right: 1px solid var(--line); font-size: 13.5px; }
+  nav .brand { font-weight: 700; font-size: 15px; margin-bottom: 14px; }
+  nav .brand span { color: var(--accent); }
+  nav ol { list-style: none; padding: 0; margin: 0; counter-reset: s; }
+  nav li { margin: 3px 0; }
+  nav a { color: var(--muted); text-decoration: none; display: block; padding: 3px 8px; border-radius: 6px; }
+  nav a:hover { background: var(--line); color: var(--ink); }
+  main { padding: 36px 48px 80px; min-width: 0; }
+  header.hero { border-bottom: 1px solid var(--line); padding-bottom: 22px; margin-bottom: 10px; }
+  h1 { font-size: 30px; line-height: 1.25; margin: 0 0 8px; }
+  h1 span { color: var(--accent); }
+  .subtitle { color: var(--muted); margin: 0; }
+  h2 { font-size: 22px; margin: 48px 0 12px; padding-top: 8px; scroll-margin-top: 12px; }
+  h2 .no { color: var(--accent); margin-right: 8px; font-variant-numeric: tabular-nums; }
+  h3 { font-size: 16.5px; margin: 28px 0 8px; scroll-margin-top: 12px; }
+  p { margin: 8px 0; }
+  a { color: var(--accent); }
+  code { font: 13px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace; background: var(--kbd);
+    padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+  pre { background: var(--code-bg); color: var(--code-ink); border-radius: 10px; padding: 14px 16px; margin: 12px 0 6px;
+    overflow-x: auto; font: 13px/1.6 ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+  pre code { background: none; padding: 0; color: inherit; overflow-wrap: normal; }
+  pre .c { color: var(--code-cm); }
+  pre .p { color: #6fd08c; user-select: none; }
+  .where { display: inline-block; font-size: 11.5px; font-weight: 700; letter-spacing: .5px; padding: 1px 8px;
+    border-radius: 999px; margin: 14px 0 -4px; border: 1px solid var(--line); color: var(--muted); }
+  .where.mac { color: #2f6fd6; border-color: #2f6fd6; }
+  .where.adb { color: var(--ok); border-color: var(--ok); }
+  .where.twrp { color: #a447c7; border-color: #a447c7; }
+  .where.termux { color: var(--accent); border-color: var(--accent); }
+  .explain { margin: 6px 0 14px; padding-left: 0; list-style: none; border-left: 3px solid var(--line); }
+  .explain li { padding: 2px 0 2px 14px; }
+  .explain code { font-size: 12.5px; }
+  .note, .tip { border-radius: 10px; padding: 10px 14px; margin: 14px 0; border-left: 4px solid; }
+  .note { background: var(--warn-bg); border-color: var(--warn-line); }
+  .tip { background: var(--tip-bg); border-color: var(--tip-line); }
+  .note b:first-child, .tip b:first-child { margin-right: 4px; }
+  .table-wrap { overflow-x: auto; margin: 12px 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; background: var(--paper); }
+  th, td { border: 1px solid var(--line); padding: 7px 10px; text-align: left; vertical-align: top; }
+  th { background: var(--kbd); font-weight: 600; white-space: nowrap; }
+  .steps { counter-reset: st; list-style: none; padding: 0; }
+  .steps > li { counter-increment: st; position: relative; padding-left: 34px; margin: 8px 0; }
+  .steps > li::before { content: counter(st); position: absolute; left: 0; top: 2px; width: 22px; height: 22px;
+    border-radius: 50%; background: var(--accent); color: #fff; font-size: 12px; font-weight: 700;
+    display: grid; place-items: center; }
+  .flow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 14px 0; }
+  .flow span { background: var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-size: 13.5px; }
+  .flow i { color: var(--muted); font-style: normal; }
+  figure { margin: 14px 0; } figure img { max-width: 100%; border-radius: 10px; border: 1px solid var(--line); display: block; }
+  figure figcaption { color: var(--muted); font-size: 13px; margin-top: 6px; }
+  .shots { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); }
+  footer { margin-top: 60px; color: var(--muted); font-size: 13px; border-top: 1px solid var(--line); padding-top: 16px; }
+  @media (max-width: 960px) {
+    .layout { grid-template-columns: 1fr; }
+    nav { position: static; max-height: none; border-right: 0; border-bottom: 1px solid var(--line); padding: 20px 16px; }
+    nav ol { columns: 2; column-gap: 16px; }
+    main { padding: 24px 16px 60px; }
+    h1 { font-size: 25px; }
+  }
+  @media (max-width: 520px) { nav ol { columns: 1; } }
+</style>
+</head>
+<body>
+<div class="layout">
+
+<nav>
+  <div class="brand">Pixel 2 XL <span>小服务器</span></div>
+  <ol>
+    <li><a href="#overview">0. 概览</a></li>
+    <li><a href="#diff">1. 和红米的区别</a></li>
+    <li><a href="#check">2. 检查能否解锁</a></li>
+    <li><a href="#files">3. 下载并校验</a></li>
+    <li><a href="#unlock">4. 解锁 bootloader</a></li>
+    <li><a href="#recovery">5. 刷 LineageOS Recovery</a></li>
+    <li><a href="#install">6. 安装 LineageOS 22.2</a></li>
+    <li><a href="#firstboot">7. 首次开机</a></li>
+    <li><a href="#magisk">8. 安装 Magisk（root）</a></li>
+    <li><a href="#termux">9. Termux 与 SSH</a></li>
+    <li><a href="#services">10. 后台服务</a></li>
+    <li><a href="#charge">11. 充电限制</a></li>
+    <li><a href="#bootanim">12. 开机动画</a></li>
+    <li><a href="#sound">13. 开机声音</a></li>
+    <li><a href="#intro">14. 开机 Termux 演示</a></li>
+    <li><a href="#logo">15. 第一屏为什么改不了</a></li>
+    <li><a href="#ops">16. 日常维护</a></li>
+    <li><a href="#pitfalls">17. 踩坑汇总</a></li>
+    <li><a href="#paths">18. 文件位置</a></li>
+  </ol>
+</nav>
+
+<main>
+<header class="hero">
+  <h1>Pixel 2 XL 变<span>小服务器</span>：刷机与搭建全记录</h1>
+  <p class="subtitle">Google Pixel 2 XL（taimen / 骁龙 835）· Android 11 → LineageOS 22.2（Android 15）+ Magisk + Termux · 2026-10-17</p>
+</header>
+
+<!-- ============================================================ -->
+<h2 id="overview"><span class="no">0</span>概览</h2>
+<p>目标和红米那台相同：常年插电、能上网、屏幕正常显示的局域网小服务器，开机画面也做成同样的风格。</p>
+<div class="table-wrap"><table>
+  <tr><th>功能</th><th>说明</th></tr>
+  <tr><td>系统</td><td>LineageOS 22.2（Android 15，安全补丁 2026-10），官方 nightly 版</td></tr>
+  <tr><td>root</td><td>Magisk v30.7</td></tr>
+  <tr><td>远程登录</td><td><code>ssh -p 8022 192.168.43.202</code>（Termux，密钥登录）</td></tr>
+  <tr><td>状态网页</td><td><code>http://192.168.43.202:8080</code></td></tr>
+  <tr><td>电池保护</td><td>保持在 50%–60%</td></tr>
+  <tr><td>开机界面</td><td>自定义开机动画（图片 + 进度条 + 声音）、开机后 Termux 自动演示</td></tr>
+</table></div>
+<div class="shots">
+  <figure><img src="img/pixel-bootanim.jpg" alt="Pixel 开机动画"><figcaption>开机动画：进度条走到 100%（真机截图）</figcaption></figure>
+  <figure><img src="img/pixel-boot-intro.jpg" alt="开机演示状态面板"><figcaption>开机后 Termux 演示的最后画面</figcaption></figure>
+</div>
+
+<h3>设备信息</h3>
+<div class="table-wrap"><table>
+  <tr><th>项目</th><th>值</th></tr>
+  <tr><td>型号 / 代号</td><td>Pixel 2 XL / taimen（和 Pixel 2 walleye 共用 <code>wahoo</code> 源码）</td></tr>
+  <tr><td>芯片 / 内存 / 存储</td><td>骁龙 835 / 4 GB / 64 GB</td></tr>
+  <tr><td>屏幕</td><td>1440 × 2880（18:9）</td></tr>
+  <tr><td>原系统</td><td>Android 11 <code>RP1A.201005.004.A1</code>（Google 最后一个官方版本）</td></tr>
+  <tr><td>分区</td><td>A/B 双槽位，没有独立的 recovery 分区（recovery 在 boot 里）</td></tr>
+</table></div>
+<p>命令前的标签：<span class="where mac">MAC</span> Mac 终端；<span class="where adb">ADB</span> 手机系统里（<code>adb shell</code>）；<span class="where twrp">RECOVERY</span> 手机在 LineageOS Recovery 时；<span class="where termux">TERMUX</span> 手机的 Termux 里。</p>
+
+<!-- ============================================================ -->
+<h2 id="diff"><span class="no">1</span>和红米的区别</h2>
+<div class="table-wrap"><table>
+  <tr><th></th><th>红米 Note 2（Android 7）</th><th>Pixel 2 XL（Android 15）</th></tr>
+  <tr><td>SELinux</td><td>宽松模式（permissive）</td><td><b>强制模式（enforcing）</b>：自己加的系统服务会被拒绝</td></tr>
+  <tr><td>系统分区</td><td>直接可写</td><td>只读，有完整性校验；改动要用 <code>adb remount</code></td></tr>
+  <tr><td>后台服务</td><td>自定义 init 服务</td><td>Magisk 的 <code>service.d</code> 开机脚本</td></tr>
+  <tr><td>充电控制</td><td><code>/proc/mtk_battery_cmd/current_cmd</code></td><td><code>battery/charging_enabled</code>（骁龙标准接口）</td></tr>
+  <tr><td>开机动画位置</td><td><code>/system/media</code></td><td><code>/product/media</code></td></tr>
+  <tr><td>开机第一屏</td><td>logo 分区，可以改</td><td>写在带签名的 bootloader 里，<b>改不了</b>（见第 15 节）</td></tr>
+  <tr><td>开机声音</td><td>放进动画包就能响</td><td>要额外补一条 SELinux 规则（见第 13 节）</td></tr>
+</table></div>
+
+<!-- ============================================================ -->
+<h2 id="check"><span class="no">2</span>检查能否解锁</h2>
+<span class="where adb">ADB</span>
+<pre><code>adb shell getprop ro.product.device         <span class="c"># taimen</span>
+adb shell getprop ro.oem_unlock_supported   <span class="c"># 1 = 支持 OEM 解锁</span>
+adb shell getprop ro.boot.cid               <span class="c"># 00000000 = Google 商店版；VZW__001 = Verizon 版（锁死）</span>
+adb shell getprop ro.build.display.id       <span class="c"># RP1A.201005.004.A1 = Android 11 最终版</span>
+adb shell getprop sys.oem_unlock_allowed    <span class="c"># 开发者选项里"OEM 解锁"打开后变成 1</span></code></pre>
+<ul class="explain">
+  <li><b>最关键的是 <code>cid</code></b>：Verizon 运营商版的 bootloader 锁死，无法刷机。</li>
+  <li>LineageOS 要求底层固件是 <b>Android 11 最新版</b>，这台出厂停在这一版，正好满足。</li>
+  <li>在手机上打开 OEM 解锁：设置 → 关于手机 → 连点"版本号"7 次 → 设置 → 系统 → 开发者选项 → <b>OEM 解锁</b>。这个开关需要手机联网才能打开。</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2 id="files"><span class="no">3</span>下载并校验</h2>
+<span class="where mac">MAC</span>
+<pre><code>curl -s https://download.lineageos.org/api/v2/devices/taimen/builds | jq '.[0].files[] | {filename, sha256, url}'</code></pre>
+<ul class="explain">
+  <li>LineageOS 官方 API 会列出最新版本的所有文件、下载地址和 SHA256。这次用的是 <code>20261015</code> nightly。</li>
+  <li>只需要两个文件：<code>lineage-22.2-…-taimen-signed.zip</code>（刷机包，969 MB）和 <code>boot.img</code>（LineageOS Recovery，40 MB）。</li>
+</ul>
+<pre><code>D=/Volumes/SSD1G/download/pixel2xl-lineage; mkdir -p $D; cd $D
+curl -fLO https://mirrorbits.lineageos.org/full/taimen/20261015/lineage-22.2-20261015-nightly-taimen-signed.zip
+curl -fLO https://mirrorbits.lineageos.org/full/taimen/20261015/boot.img
+shasum -a 256 -c files.sha256          <span class="c"># 每行 "sha256  文件名"，来自上面的 API</span></code></pre>
+
+<!-- ============================================================ -->
+<h2 id="unlock"><span class="no">4</span>解锁 bootloader</h2>
+<div class="note"><b>会清空手机所有数据。</b>先备份，并在手机设置里退出 Google 账号。</div>
+<span class="where mac">MAC</span>
+<pre><code>adb -d reboot bootloader     <span class="c"># 重启到 bootloader（或关机后按住 音量下 + 电源）</span>
+fastboot getvar all          <span class="c"># is_oem_unlocked: yes / unlocked: no / version-bootloader: TMZ30m</span>
+fastboot flashing unlock     <span class="c"># 手机上会弹出确认界面</span></code></pre>
+<ol class="steps">
+  <li>手机显示 "Unlock the bootloader?"：先按 <b>音量键</b> 选到 <b>Unlock the bootloader</b>，再按 <b>电源键</b>。</li>
+  <li>界面底部 "Device state" 变成 <b>unlocked</b> 就成功了。</li>
+</ol>
+<div class="note"><b>坑 1：</b>第一次直接按了电源键，默认选中的是"不解锁"，返回 <code>Set device unlocked! canceled</code>，手机没有变化，重新执行一次即可。<br>
+<b>坑 2：</b>解锁成功后，<code>fastboot getvar unlocked</code> 仍然显示 <code>no</code>，要重启一次才会刷新。以屏幕上显示的 "Device state" 为准。</div>
+
+<!-- ============================================================ -->
+<h2 id="recovery"><span class="no">5</span>刷 LineageOS Recovery</h2>
+<span class="where mac">MAC</span>
+<pre><code>fastboot flash boot boot.img      <span class="c"># 写入当前槽位（boot_b）</span></code></pre>
+<ul class="explain">
+  <li>Pixel 2 XL 没有独立的 recovery 分区，recovery 在 boot 镜像里，所以刷的是 <code>boot</code>。</li>
+  <li>如果 bootloader 没解锁，这一步会被直接拒绝，所以它也能顺便验证解锁是否成功。</li>
+</ul>
+<p>进入 Recovery：这台的 bootloader 不响应 <code>fastboot reboot recovery</code>，要在 bootloader 界面用 <b>音量键</b> 选 <b>Recovery mode</b>，再按 <b>电源键</b>。</p>
+
+<!-- ============================================================ -->
+<h2 id="install"><span class="no">6</span>安装 LineageOS 22.2</h2>
+<ol class="steps">
+  <li>Recovery 里选 <b>Factory reset → Format data / factory reset</b>，清掉原来 Android 11 的加密数据。</li>
+  <li>回主菜单，选 <b>Apply update → Apply from ADB</b>。</li>
+</ol>
+<span class="where twrp">RECOVERY</span>
+<pre><code>adb -d sideload lineage-22.2-20261015-nightly-taimen-signed.zip</code></pre>
+<ul class="explain">
+  <li><code>sideload</code>：Mac 一边传，手机一边安装。手机端会校验 LineageOS 的官方签名。</li>
+  <li>装完后，adb 有时会一直不退出或显示 47%，这是正常现象，以手机屏幕上的提示为准。</li>
+</ul>
+<ol class="steps">
+  <li>提示 "to install additional packages, you need to reboot recovery first" 时选 <b>No</b>（不装 Google 应用）。</li>
+  <li>选 <b>Reboot system now</b>。第一次开机可能要几分钟。</li>
+</ol>
+
+<!-- ============================================================ -->
+<h2 id="firstboot"><span class="no">7</span>首次开机</h2>
+<p>新系统默认关闭了 USB 调试。打开方法：设置 → 关于手机 → 滑到底部，连点 <b>"版本号"</b>（不是"Android 版本"）7 次 → 设置 → 系统 → 开发者选项 → <b>USB 调试</b>。</p>
+<span class="where adb">ADB</span>
+<pre><code>adb shell getprop ro.lineage.version              <span class="c"># 22.2-20261015-NIGHTLY-taimen</span>
+adb shell getprop ro.build.version.security_patch <span class="c"># 2026-10-01</span>
+adb shell getprop ro.boot.slot_suffix             <span class="c"># _a：刷机包装到了另一个槽位</span>
+adb shell getprop ro.boot.verifiedbootstate       <span class="c"># orange = bootloader 已解锁</span></code></pre>
+<div class="tip"><b>开机警告：</b>以后每次开机都会先出现橙色的"bootloader 已解锁"警告页，几秒后自动继续。这是 Google 的固定提示，去不掉。</div>
+<div class="note"><b>坑：插着 USB 但 adb 看不到手机。</b>刚打开 USB 调试时，USB 连接没有刷新。拔掉线重新插上，手机弹出"允许 USB 调试吗？"后点允许。</div>
+
+<!-- ============================================================ -->
+<h2 id="magisk"><span class="no">8</span>安装 Magisk（root）</h2>
+<p>LineageOS 是 userdebug 版本，插 USB 时可以用 <code>adb root</code>。但要让后台服务开机自动以 root 运行，需要 Magisk。这次没有用 Magisk 应用的图形界面，而是在命令行里修补 boot。</p>
+<span class="where mac">MAC</span>
+<pre><code>curl -fLO https://github.com/topjohnwu/Magisk/releases/download/v30.7/Magisk-v30.7.apk
+adb root
+adb exec-out 'dd if=/dev/block/by-name/boot_a bs=1048576' &gt; backup/boot_a-stock-lineage.img   <span class="c"># 先备份</span></code></pre>
+<ul class="explain">
+  <li>导出的 boot_a 和官方下载的 <code>boot.img</code> md5 完全一致，说明手机上用的就是这个版本。</li>
+</ul>
+<span class="where mac">MAC</span>
+<pre><code><span class="c"># 从 APK 里取出修补工具：lib/arm64-v8a/libXXX.so 改名为 XXX，加上 assets 里的脚本</span>
+unzip Magisk-v30.7.apk 'lib/arm64-v8a/*' assets/boot_patch.sh assets/util_functions.sh assets/stub.apk
+for n in magiskboot magiskinit magisk init-ld busybox magiskpolicy; do cp lib/arm64-v8a/lib$n.so out/$n; done
+adb push out/. /data/local/tmp/mg/
+adb push backup/boot_a-stock-lineage.img /data/local/tmp/mg/boot.img</code></pre>
+<span class="where adb">ADB</span>
+<pre><code>cd /data/local/tmp/mg &amp;&amp; chmod 755 *
+KEEPVERITY=false KEEPFORCEENCRYPT=true ./busybox sh boot_patch.sh boot.img   <span class="c"># 生成 new-boot.img</span></code></pre>
+<ul class="explain">
+  <li><code>boot_patch.sh</code> 就是 Magisk 应用"修补文件"时运行的脚本。</li>
+  <li><code>KEEPVERITY=false</code>：关闭分区完整性校验。后面用 <code>adb remount</code> 改写系统分区需要这一项。</li>
+</ul>
+<span class="where mac">MAC</span>
+<pre><code>adb pull /data/local/tmp/mg/new-boot.img boot_a-magisk-v30.7.img
+adb reboot bootloader
+fastboot flash boot_a boot_a-magisk-v30.7.img
+fastboot reboot
+adb install -r Magisk-v30.7.apk</code></pre>
+
+<h3>8.1 补齐 Magisk 运行文件（关键）</h3>
+<span class="where adb">ADB</span>
+<pre><code>cd /data/local/tmp/mg
+cp busybox magisk magiskboot magiskinit magiskpolicy init-ld util_functions.sh boot_patch.sh stub.apk /data/adb/magisk/
+chmod 755 /data/adb/magisk/*</code></pre>
+<div class="note"><b>坑：</b>用命令行修补时，没有人往 <code>/data/adb/magisk</code> 里放运行工具。正常情况下这一步由 Magisk 应用完成。少了这些工具，Magisk 每次开机只执行最后的 "boot-complete" 阶段，<b>开机脚本和模块全部被跳过</b>，也不会报错。日志里只有 <code>boot-complete triggered</code> 一行就是这个症状。</div>
+
+<!-- ============================================================ -->
+<h2 id="termux"><span class="no">9</span>Termux 与 SSH</h2>
+<span class="where mac">MAC</span>
+<pre><code>adb install -r com.termux_1002.apk             <span class="c"># F-Droid 版 Termux 0.118.3</span>
+adb shell pm list packages -U com.termux       <span class="c"># uid:10207</span>
+adb shell am start -n com.termux/.app.TermuxActivity   <span class="c"># 首次打开，解压基础环境</span></code></pre>
+
+<h3>9.1 以 Termux 用户身份执行命令</h3>
+<span class="where adb">ADB</span>
+<pre><code>/debug_ramdisk/su 10207 -g 10207 -G 3003 -c 'PREFIX=… HOME=… PATH=$PREFIX/bin:/system/bin …; 命令'</code></pre>
+<ul class="explain">
+  <li><code>/debug_ramdisk/su</code>：Magisk 的 su。adb root 的命令搜索路径里没有它，要写完整路径。</li>
+  <li><code>10207</code>：切换到 Termux 的用户。</li>
+  <li><code>-G 3003</code>：加入 inet 组。Android 只允许这个组的进程联网。</li>
+  <li><code>-g 10207</code>：<b>必须写</b>。没有 <code>-g</code> 时，<code>-G</code> 的第一个组会被当成主组。漏写这一项时，命令曾经卡住不动。</li>
+</ul>
+<span class="where termux">TERMUX</span>
+<pre><code>pkg update -y &amp;&amp; pkg install -y openssh python jq neofetch procps
+sshd                                  <span class="c"># 端口 8022</span></code></pre>
+<span class="where mac">MAC</span>
+<pre><code>ssh -p 8022 192.168.43.202</code></pre>
+
+<h3>9.2 SELinux 标签问题</h3>
+<div class="note"><b>坑：</b>通过 Magisk su 安装的文件标签是 <code>app_data_file:s0</code>，少了 Termux 专属的分类 <code>c207,c256,c512,c768</code>。Termux 应用运行在普通应用的权限域里，读不了这些文件，于是报错 <code>CANNOT LINK … libncursesw.so.6 not found</code>。而 SSH 跑在 Magisk 的权限域里，一切正常，所以这个问题很隐蔽。</div>
+<span class="where adb">ADB</span>
+<pre><code>chcon -R -h u:object_r:app_data_file:s0:c207,c256,c512,c768 /data/data/com.termux/files</code></pre>
+<ul class="explain">
+  <li><code>-h</code> <b>不能省</b>：不加的话，只会改符号链接指向的文件，链接本身的标签不变，<code>libncursesw.so.6</code> 这个链接仍然读不了。</li>
+  <li>这条命令已经写进守护服务，每次开机都会执行一次。</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2 id="services"><span class="no">10</span>后台服务</h2>
+<div class="table-wrap"><table>
+  <tr><th>文件（工程里）</th><th>装到手机上</th><th>作用</th></tr>
+  <tr><td><code>magisk/service.sh</code></td><td><code>/data/adb/service.d/pixelsrv.sh</code></td><td>开机入口：等开机完成，启动下面三个脚本</td></tr>
+  <tr><td><code>magisk/phonectl.sh</code></td><td><code>/data/adb/pixelsrv/</code></td><td>充电限制；每 15 秒写出 Wi-Fi、IP 等信息给网页用</td></tr>
+  <tr><td><code>magisk/termux-services.sh</code></td><td><code>/data/adb/pixelsrv/</code></td><td>修正标签；守护 sshd 和网页服务；持有唤醒锁</td></tr>
+  <tr><td><code>magisk/termux-intro.sh</code></td><td><code>/data/adb/pixelsrv/</code></td><td>开机后全屏打开 Termux 演示</td></tr>
+  <tr><td><code>magisk/bootsound.sh</code></td><td><code>/data/adb/post-fs-data.d/</code></td><td>让开机声音能播放（第 13 节）</td></tr>
+</table></div>
+<span class="where mac">MAC</span>
+<pre><code>cd ~/ai_claude/pixel2xl-server
+./deploy.sh root       <span class="c"># 推送 Magisk 脚本，同时设置插电常亮、关闭锁屏、Termux 加入省电白名单</span>
+./deploy.sh web        <span class="c"># 通过 SSH 推送网页服务、开机演示、Termux 设置</span></code></pre>
+<p>网页服务和红米共用同一套代码，读取方式做了兼容：骁龙的温度传感器取最热的 <code>tsens_tz_sensor*</code> 作为 CPU 温度，并自动识别 °C、0.1°C、0.001°C 三种单位；电压读 <code>voltage_now</code>（µV）；版本读 <code>ro.lineage.version</code>。</p>
+
+<!-- ============================================================ -->
+<h2 id="charge"><span class="no">11</span>充电限制 50–60%</h2>
+<span class="where adb">ADB</span>
+<pre><code>echo 0 &gt; /sys/class/power_supply/battery/charging_enabled   <span class="c"># 停止给电池充电，USB 继续给手机供电</span>
+echo 1 &gt; /sys/class/power_supply/battery/charging_enabled   <span class="c"># 恢复充电</span>
+cat /sys/class/power_supply/battery/status                  <span class="c"># Not charging / Charging</span></code></pre>
+<div class="note"><b>坑：</b>开机后，系统的充电服务会把 <code>charging_enabled</code> 改回 1。重新插拔 USB 时也会。<br><b>解决：</b><code>phonectl.sh</code> 每 15 秒核对一次，被改回就重新写入，并记录日志：<code>charging_enabled was reset by the system; re-applied 0</code>。</div>
+<p>日志：<code>/data/adb/pixelsrv/phonectl.log</code>。修改区间：在 <code>/data/adb/pixelsrv/phonectl.conf</code> 里写 <code>CHARGE_LOW=…</code>、<code>CHARGE_HIGH=…</code>。</p>
+
+<!-- ============================================================ -->
+<h2 id="bootanim"><span class="no">12</span>开机动画</h2>
+<span class="where mac">MAC</span>
+<pre><code>W=1440 H=2880 tools/build_bootanim.sh assets/images/bootanim-v2-portrait.png \
+    /Volumes/SSD1G/download/pixel2xl-lineage/bootanimation-pixel.zip assets/audio/phone_boot.mp3
+./deploy.sh bootanim</code></pre>
+<ul class="explain">
+  <li><code>W=1440 H=2880</code>：Pixel 的屏幕是 18:9，比图片更瘦长。脚本会按宽度缩放图片，上下补黑边，进度条按比例放大并放在底部。</li>
+  <li><code>deploy.sh bootanim</code>：先备份原版，然后 <code>adb remount</code>，直接写入 <code>/system/product/media/bootanimation.zip</code>。</li>
+  <li><code>bootanimation-dark.zip</code> 是指向 <code>bootanimation.zip</code> 的链接。LineageOS 在深色主题下播放 dark 版，两个都会生效。</li>
+</ul>
+<div class="note"><b>坑：Magisk 模块替换不了开机动画。</b>开机动画在开机第 4.5 秒左右就启动了，比 /data 分区挂载还早，而 Magisk 模块要等 /data 准备好后才挂载。开机完成后再去检查，看到的确实是替换后的文件，但开机动画读文件时还是原版。日志显示播放的是 <code>…/part2</code>，而我们的包里只有 part0 和 part1，这就是破绽。<br><b>解决：</b>改用 <code>adb remount</code> 直接写入系统分区。</div>
+
+<!-- ============================================================ -->
+<h2 id="sound"><span class="no">13</span>开机声音</h2>
+<p>声音文件 <code>audio.wav</code> 放在动画包的 part0 里，但在 Pixel 上一开始完全不响。排查过程：</p>
+<ol class="steps">
+  <li>开机时实时记录日志（开机阶段日志量太大，事后看会缺条目）。日志显示：<code>found audio.wav</code> → <code>Audio service is not ready yet</code> → <code>cannot play clip without a player</code>。</li>
+  <li>同一时刻，用 <code>service check audio</code> 查询，服务明明已经存在。</li>
+  <li>内核日志找到真正的原因：<code>avc: denied { find } … name=audio scontext=u:r:bootanim:s0 tcontext=u:object_r:audio_service:s0</code>。<b>SELinux 不允许开机动画进程查询 audio 服务</b>，所以它永远认为音频服务没准备好。原版 LineageOS 22.2 在这台手机上本来就放不了开机声音。</li>
+</ol>
+<span class="where adb">ADB</span>
+<pre><code><span class="c"># magisk/bootsound.sh 的核心（在 Magisk 最早的 post-fs-data 阶段运行）</span>
+/data/adb/magisk/magiskpolicy --live "allow bootanim audio_service service_manager find"
+<span class="c"># 等 audio 服务出现，并且开机动画还在播放，就重启开机动画一次</span>
+service check audio | grep -q ": found" &amp;&amp; setprop ctl.restart bootanim</code></pre>
+<ul class="explain">
+  <li><code>magiskpolicy --live</code>：在运行中的 SELinux 策略里加一条规则，只允许开机动画查询 audio 服务，不放开其他权限。</li>
+  <li>重启开机动画：第一次启动时 audio 服务还不存在，重启后的开机动画才能查到它，并创建播放器。</li>
+</ul>
+<div class="tip"><b>当前状态：</b>日志显示声音已经正常播放（<code>Created buffer queue player</code> → <code>playClip</code> → 11.6 秒后 <code>destroying audio player</code>），音乐和进度条同时开始。<b>代价：</b>创建播放器要等大约 10 秒，这段时间画面会停住，整个开机过程约 34 秒。<b>还没确认：</b>耳朵实际能否听到。<code>bootsound.sh</code> 里仍然开着实时日志记录（<code>/data/adb/pixelsrv/bootanim-live.log</code>），确认后可以关掉。</div>
+<div class="note"><b>走过的弯路：</b>用 Termux 的 <code>play-audio</code> 以 root 身份播放，进程启动了，但听不到声音，而且不会自己退出。用系统音乐播放器 Twelve 手动播放 <code>/sdcard/Download/phone_boot.mp3</code> 能听到，说明扬声器和音量都正常。</div>
+
+<!-- ============================================================ -->
+<h2 id="intro"><span class="no">14</span>开机 Termux 演示</h2>
+<p>和红米相同的演示脚本（<code>termux/bin/boot-intro</code>）：逐字"敲出"常用命令 → 真实连接 Claude、Gemini、OpenAI 的 API 服务器 → 7 项状态面板。提示符根据机型自动显示 <code>laohan@pixel</code>。</p>
+<span class="where adb">ADB</span>
+<pre><code><span class="c"># Android 8 以后不允许在后台直接启动其他应用的服务，要用 start-foreground-service</span>
+am start-foreground-service --user 0 -n com.termux/com.termux.app.RunCommandService \
+  -a com.termux.RUN_COMMAND --es com.termux.RUN_COMMAND_PATH /data/data/com.termux/files/home/bin/boot-intro \
+  --ez com.termux.RUN_COMMAND_BACKGROUND false
+locksettings set-disabled true      <span class="c"># 关闭锁屏，否则 Termux 被挡住</span></code></pre>
+<div class="note"><b>坑：状态面板显示"SSH 未运行"，其实 SSH 一直正常。</b>sshd 运行在 Magisk 的权限域里，Termux 应用运行在 <code>untrusted_app</code> 权限域里。虽然是同一个用户，SELinux 也不允许查看对方的进程，所以 <code>pgrep</code> 找不到 sshd。<br><b>解决：</b>改为直接连接 8022 端口来检测：<code>bash -c "exec 3&lt;&gt;/dev/tcp/127.0.0.1/8022"</code>。</div>
+<figure><img src="img/pixel-termux-first-run.jpg" alt="Termux 首次运行" style="max-width:280px"><figcaption>Termux 首次打开：基础环境解压完成</figcaption></figure>
+
+<!-- ============================================================ -->
+<h2 id="logo"><span class="no">15</span>第一屏为什么改不了</h2>
+<span class="where adb">ADB</span>
+<pre><code>ls /dev/block/by-name/ | sed 's/_[ab]$//' | sort -u     <span class="c"># 没有 logo、splash 这类分区</span></code></pre>
+<ul class="explain">
+  <li>开机的 Google 标志和"已解锁"警告页，是 bootloader（<code>abl</code>、<code>xbl</code>）自己画的，图片打包在 bootloader 程序里。</li>
+  <li>手机芯片里熔断写入了 Google 的签名公钥，开机时会验证 bootloader 的签名。改动一个字节，签名就对不上，手机无法开机，而且很难救回来。</li>
+  <li><b>自己编译整个系统也没用</b>：Android 源码里没有 bootloader，Google 只提供编译好的文件。</li>
+  <li>红米能改，是因为联发科把 logo 放在一个独立的、不检查签名的分区里。</li>
+  <li>唯一能动的：用自己的密钥签名系统并重新锁上 bootloader，可以把橙色警告换成黄色提示，但同样去不掉，而且有变砖风险，不值得。</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2 id="ops"><span class="no">16</span>日常维护</h2>
+<div class="table-wrap"><table>
+  <tr><th>要做的事</th><th>命令</th></tr>
+  <tr><td>登录</td><td><code>ssh -p 8022 192.168.43.202</code></td></tr>
+  <tr><td>看状态</td><td><code>http://192.168.43.202:8080</code> 或 <code>./deploy.sh status</code></td></tr>
+  <tr><td>改网页或开机演示</td><td><code>./deploy.sh web</code></td></tr>
+  <tr><td>改 Magisk 脚本</td><td><code>./deploy.sh root</code>，然后 <code>adb reboot</code></td></tr>
+  <tr><td>换开机动画或声音</td><td>换掉 <code>assets/</code> 里的文件 → 第 12 节的两条命令</td></tr>
+  <tr><td>装了新的 Termux 软件包（通过 su）</td><td>重启一次，或手动执行第 9.2 节的 <code>chcon -R -h …</code></td></tr>
+  <tr><td>取消 root</td><td><code>fastboot flash boot_a backup/boot_a-stock-lineage.img</code></td></tr>
+  <tr><td>还原开机动画</td><td><code>adb remount</code>，push <code>backup/bootanimation-lineage22-stock.zip</code></td></tr>
+</table></div>
+<div class="note"><b>升级 LineageOS 时注意：</b>OTA 会换掉 boot（Magisk 失效），也会换掉 /product（开机动画恢复原版）。升级后要按第 8 节重新修补 boot，再执行 <code>./deploy.sh bootanim</code>。</div>
+
+<!-- ============================================================ -->
+<h2 id="pitfalls"><span class="no">17</span>踩坑汇总</h2>
+<div class="table-wrap"><table>
+  <tr><th>现象</th><th>原因</th><th>解决</th></tr>
+  <tr><td>解锁返回 canceled</td><td>在确认界面直接按了电源键，默认是"不解锁"</td><td>先用音量键选 Unlock</td></tr>
+  <tr><td>解锁后 getvar 仍是 no</td><td>bootloader 缓存的状态值</td><td>以屏幕显示为准，或重启后再看</td></tr>
+  <tr><td><code>fastboot reboot recovery</code> 没反应</td><td>bootloader 不支持这条命令</td><td>用音量键选 Recovery mode</td></tr>
+  <tr><td>开机后 adb 看不到手机</td><td>新系统默认关闭 USB 调试；开了之后 USB 没刷新</td><td>开启 USB 调试，拔插 USB 线</td></tr>
+  <tr><td>Magisk 开机脚本、模块都不生效</td><td>命令行修补后 <code>/data/adb/magisk</code> 是空的</td><td>手动放入运行工具</td></tr>
+  <tr><td>su 切换到 Termux 用户后卡住</td><td><code>-G</code> 的第一个组被当成主组</td><td>同时写 <code>-g 10207 -G 3003</code></td></tr>
+  <tr><td>Termux 里 bash 报 CANNOT LINK</td><td>su 创建的文件缺少应用的 SELinux 分类</td><td><code>chcon -R -h …:c207,…</code></td></tr>
+  <tr><td>充电控制失效</td><td>系统充电服务把开关改回 1</td><td>每 15 秒核对并重新写入</td></tr>
+  <tr><td>开机动画还是原版</td><td>Magisk 模块挂载得比开机动画晚</td><td><code>adb remount</code> 直接写入</td></tr>
+  <tr><td>开机没有声音</td><td>SELinux 禁止开机动画查询 audio 服务</td><td><code>magiskpolicy --live</code> + 重启开机动画</td></tr>
+  <tr><td>状态面板 SSH 未运行</td><td>Termux 应用看不到 Magisk 权限域的进程</td><td>改为检测 8022 端口</td></tr>
+  <tr><td>fastfetch、Termux:API 不可用（红米）</td><td>—</td><td>Pixel 上不需要：信息由 root 脚本读取</td></tr>
+</table></div>
+
+<!-- ============================================================ -->
+<h2 id="paths"><span class="no">18</span>文件位置</h2>
+<div class="table-wrap"><table>
+  <tr><th>内容</th><th>位置</th></tr>
+  <tr><td>工程（GitHub 私有仓库）</td><td><code>~/ai_claude/pixel2xl-server/</code></td></tr>
+  <tr><td>素材：开机图片、开机音乐</td><td><code>assets/images/</code>、<code>assets/audio/</code></td></tr>
+  <tr><td>Magisk 脚本</td><td><code>magisk/</code></td></tr>
+  <tr><td>网页服务 / 开机演示 / Termux 设置</td><td><code>termux/</code></td></tr>
+  <tr><td>刷机包、boot、Magisk APK</td><td><code>/Volumes/SSD1G/download/pixel2xl-lineage/</code>（太大或是第三方文件，不放进 git）</td></tr>
+  <tr><td>备份：原版 boot、修补后的 boot、原版开机动画</td><td><code>/Volumes/SSD1G/download/pixel2xl-lineage/backup/</code></td></tr>
+  <tr><td>手机上的日志</td><td><code>/data/adb/pixelsrv/phonectl.log</code>、<code>bootsound.log</code>、<code>bootanim-live.log</code></td></tr>
+</table></div>
+
+<footer>按 2026-10-17 实际操作过程整理。文中不包含 Wi-Fi 密码等敏感信息。</footer>
+</main>
+</div>
+</body>
+</html>

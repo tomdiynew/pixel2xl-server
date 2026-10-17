@@ -23,7 +23,19 @@ termux/bin/boot-intro       typed commands, AI endpoint handshakes, status board
 termux/dot-termux/          termux.properties (full screen, no keyboard, external apps)
 tools/build_bootanim.sh     W=1440 H=2880 tools/build_bootanim.sh pic.png out.zip sound.mp3
 deploy.sh                   root | bootanim | web | all | status
+assets/                     boot picture + boot sound
+docs/build-guide.html       full guide
 ```
+
+**Full step-by-step guide (Chinese, commands explained):** [docs/build-guide.html](docs/build-guide.html)
+
+## Assets
+
+- `assets/images/bootanim-v2-portrait.png`: boot animation picture. It is fitted to 1440x2880 by `tools/build_bootanim.sh`.
+- `assets/audio/phone_boot.mp3`: the boot sound.
+- `docs/img/`: real-device screenshots used by the guide.
+
+Not in git: the LineageOS zip, boot images, Magisk/Termux APKs, backups and the generated `bootanimation-pixel.zip`. All of these live on `/Volumes/SSD1G/download/pixel2xl-lineage/`. The guide lists the download URLs, and the zip is rebuilt from `assets/`.
 
 ## Deploy
 
