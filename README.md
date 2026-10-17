@@ -10,6 +10,14 @@ This repo is separate from `redmi-note2-server`. The Termux dashboard and boot-i
 - **Boot animation**: custom picture, LOADING progress bar and boot sound
 - **Boot intro**: after boot, Termux opens full screen and runs a status board
 
+## Screenshots
+
+| Boot animation (progress bar + sound) | Boot intro status board | Termux first run |
+|---|---|---|
+| <img src="docs/img/pixel-bootanim.jpg" width="200"> | <img src="docs/img/pixel-boot-intro.jpg" width="200"> | <img src="docs/img/pixel-termux-first-run.jpg" width="170"> |
+
+**Boot sound:** [assets/audio/phone_boot.mp3](assets/audio/phone_boot.mp3) (11 s, packed into the boot animation as `part0/audio.wav`)
+
 ## Layout
 
 ```
