@@ -70,3 +70,7 @@ Not in git: the LineageOS zip, boot images, Magisk/Termux APKs, backups and the 
 - **pgrep cannot see sshd from the Termux app**, because sshd runs in Magisk's SELinux domain. The boot intro checks the port instead.
 - **Boot sound is blocked by sepolicy**: `avc: denied { find } ... scontext=u:r:bootanim:s0 tcontext=u:object_r:audio_service:s0`. `bootsound.sh` grants that one lookup with `magiskpolicy --live`, waits for the audio service, then restarts bootanim once. The audio player then takes about 10 s to come up, so boot takes longer.
 - Stock LineageOS boot animation backup: `/Volumes/SSD1G/download/pixel2xl-lineage/backup/`. The stock boot image and the Magisk-patched boot image are kept there too.
+
+## License
+
+Code, docs, the boot picture and the boot sound (an original recording) are MIT-licensed. See [LICENSE](LICENSE).
