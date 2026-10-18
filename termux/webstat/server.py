@@ -6,7 +6,8 @@ GET /api/status   current readings (JSON)
 GET /api/history  last 24h of 1-minute samples (JSON)
 GET /api/news/days  one entry per day (ok / partial / error / pending / missing)
 GET /news/<date>.html  that day's stand-alone news page; batches are fetched
-                  from Google News RSS every day at 07:00 local time into ~/news/
+                  from each country's own outlets every day at 07:00 local time into ~/news/
+                  (non-Chinese headlines get a Chinese machine translation)
 GET /api/markets  index / commodity quotes from Sina (cached 30s) and
                   Brazilian beef/soy from CEPEA (daily, cached 1h) (JSON)
 
@@ -254,15 +255,23 @@ def markets():
         return {"time": int(_markets["ts"]), "groups": _markets["data"] or [], "error": _markets.get("error")}
 
 
-# ---- daily news: Google News RSS (Simplified Chinese edition), 20 headlines per group
-GN = "hl=zh-CN&gl=CN&ceid=CN:zh-Hans"
-NEWS_FEEDS = [
-    ("世界", f"https://news.google.com/rss/headlines/section/topic/WORLD?{GN}"),
-    ("中国", f"https://news.google.com/rss/headlines/section/topic/NATION?{GN}"),
-    ("韩国", f"https://news.google.com/rss/search?q=%E9%9F%A9%E5%9B%BD+when:1d&{GN}"),
-    ("日本", f"https://news.google.com/rss/search?q=%E6%97%A5%E6%9C%AC+when:1d&{GN}"),
-    ("越南", f"https://news.google.com/rss/search?q=%E8%B6%8A%E5%8D%97+when:1d&{GN}"),
-    ("欧洲", f"https://news.google.com/rss/search?q=%E6%AC%A7%E6%B4%B2+when:1d&{GN}"),
+# ---- daily news: each country's own outlets (major Western ones for world news),
+# NEWS_PER_GROUP headlines per group taken in turn from its sources; every
+# non-Chinese headline also gets an automatic Chinese translation.
+NEWS_FEEDS = [  # (group, [(source, rss url, language)])
+    ("世界", [("BBC", "https://feeds.bbci.co.uk/news/world/rss.xml", "en"),
+              ("The Guardian", "https://www.theguardian.com/world/rss", "en"),
+              ("The New York Times", "https://rss.nytimes.com/services/xml/rss/nyt/World.xml", "en")]),
+    ("中国", [("中国新闻网", "https://www.chinanews.com.cn/rss/scroll-news.xml", "zh"),
+              ("人民网", "http://www.people.com.cn/rss/politics.xml", "zh")]),
+    ("韩国", [("연합뉴스", "https://www.yna.co.kr/rss/news.xml", "ko")]),
+    ("日本", [("NHK", "https://www3.nhk.or.jp/rss/news/cat0.xml", "ja"),
+              ("朝日新聞", "https://www.asahi.com/rss/asahi/newsheadlines.rdf", "ja")]),
+    ("越南", [("VnExpress", "https://vnexpress.net/rss/tin-moi-nhat.rss", "vi"),
+              ("Tuổi Trẻ", "https://tuoitre.vn/rss/tin-moi-nhat.rss", "vi")]),
+    ("欧洲", [("DW", "https://rss.dw.com/rdf/rss-en-eu", "en"),
+              ("Le Monde", "https://www.lemonde.fr/international/rss_full.xml", "fr"),
+              ("Der Spiegel", "https://www.spiegel.de/international/index.rss", "en")]),
 ]
 NEWS_PER_GROUP = 20
 NEWS_HOUR = 7
@@ -271,27 +280,83 @@ NEWS_INDEX = os.path.join(NEWS_DIR, "index.json")
 _news_lock = threading.Lock()
 
 
-def fetch_news_group(url):
+def _local(tag):
+    return tag.rsplit("}", 1)[-1]
+
+
+def fetch_feed(url, limit):
+    """RSS 2.0, RSS 1.0 (RDF) and Atom -> [{title, link, time}]"""
     import xml.etree.ElementTree as ET
     from email.utils import parsedate_to_datetime
     raw = urlopen(Request(url, headers={"User-Agent": "Mozilla/5.0"}), timeout=20).read()
-    items, seen = [], set()
-    for it in ET.fromstring(raw).iter("item"):
-        title = (it.findtext("title") or "").strip()
-        src = (it.findtext("source") or "").strip()
-        if src and title.endswith(" - " + src):        # Google appends " - <source>"
-            title = title[: -len(src) - 3]
+    out, seen = [], set()
+    for it in ET.fromstring(raw).iter():
+        if _local(it.tag) not in ("item", "entry"):
+            continue
+        f = {_local(c.tag): c for c in it}
+        title = " ".join((f["title"].text or "").split()) if "title" in f else ""
+        link = (f["link"].text or f["link"].get("href") or "").strip() if "link" in f else ""
         if not title or title in seen:
             continue
         seen.add(title)
-        try:
-            ts = int(parsedate_to_datetime(it.findtext("pubDate")).timestamp())
-        except Exception:
-            ts = None
-        items.append({"title": title, "link": it.findtext("link") or "", "source": src, "time": ts})
-        if len(items) >= NEWS_PER_GROUP:
+        ts = None
+        for k in ("pubDate", "date", "published", "updated"):
+            if k in f and f[k].text:
+                try:
+                    ts = int(parsedate_to_datetime(f[k].text).timestamp())
+                except Exception:
+                    try:
+                        from datetime import datetime
+                        ts = int(datetime.fromisoformat(f[k].text.strip().replace("Z", "+00:00")).timestamp())
+                    except Exception:
+                        pass
+                break
+        out.append({"title": title, "link": link, "time": ts})
+        if len(out) >= limit:
             break
-    return items
+    return out
+
+
+def translate_zh(lines, lang):
+    """Google Translate's keyless endpoint; one line per headline, batches of 10."""
+    import urllib.parse
+    out = []
+    for i in range(0, len(lines), 10):
+        chunk = lines[i:i + 10]
+        body = urllib.parse.urlencode({"q": "\n".join(chunk)}).encode()
+        url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl={lang}&tl=zh-CN&dt=t"
+        d = json.loads(urlopen(Request(url, data=body, headers={"User-Agent": "Mozilla/5.0"}), timeout=20).read())
+        res = "".join(seg[0] for seg in d[0] if seg[0]).split("\n")
+        out += res if len(res) == len(chunk) else [None] * len(chunk)   # misaligned -> skip
+    return out
+
+
+def fetch_news_group(sources):
+    """Headlines from every source of a group, interleaved, with Chinese translations."""
+    per_src, errors = [], []
+    for name, url, lang in sources:
+        try:
+            items = fetch_feed(url, NEWS_PER_GROUP)
+        except Exception as e:
+            errors.append(f"{name}: {e}"); continue
+        for i in items:
+            i.update(source=name, lang=lang, title_zh=None)
+        per_src.append(items)
+    picked = []
+    while len(picked) < NEWS_PER_GROUP and any(per_src):
+        for items in per_src:
+            if items and len(picked) < NEWS_PER_GROUP:
+                picked.append(items.pop(0))
+    for lang in {i["lang"] for i in picked if i["lang"] != "zh"}:
+        todo = [i for i in picked if i["lang"] == lang]
+        try:
+            for i, zh in zip(todo, translate_zh([i["title"] for i in todo], lang)):
+                i["title_zh"] = zh
+        except Exception as e:
+            errors.append(f"翻译({lang}): {e}")
+    if not picked and errors:
+        raise RuntimeError("; ".join(errors))
+    return picked, errors
 
 
 def _news_index():
@@ -316,12 +381,14 @@ def news_day_html(day, data):
     for g in data["groups"]:
         if g["items"]:
             lis = "".join(f'<li><a href="{e(i["link"])}" target="_blank" rel="noopener">{e(i["title"])}</a>'
-                          f'<div class="n">{e(i["source"])}{" · " + fmt(i["time"]) if i["time"] else ""}</div></li>'
+                          + (f'<div class="zh">{e(i["title_zh"])}</div>' if i.get("title_zh") else "")
+                          + f'<div class="n">{e(i["source"])}{" · " + fmt(i["time"]) if i["time"] else ""}</div></li>'
                           for i in g["items"])
-            body = f"<ol>{lis}</ol>"
+            body = f"<ol>{lis}</ol>" + (f'<div class="n err">{e(g["error"])}</div>' if g.get("error") else "")
         else:
             body = f'<div class="err">抓取失败：{e(g.get("error") or "无数据")}</div>'
-        cards.append(f'<section><h2>{e(g["title"])} · {len(g["items"])} 条</h2>{body}</section>')
+        src = " · ".join(g.get("sources") or [])
+        cards.append(f'<section><h2>{e(g["title"])} · {len(g["items"])} 条</h2><div class="n">{e(src)}</div>{body}</section>')
     return f"""<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>每日新闻 {day}</title>
 <style>
@@ -336,9 +403,10 @@ h2 {{ font-size:16px; margin:0 0 8px; }}
 ol {{ margin:0; padding-left:22px; }} li {{ padding:6px 0; border-top:1px solid var(--line); }} li:first-child {{ border-top:0; }}
 a {{ color:inherit; text-decoration:none; }} a:hover {{ text-decoration:underline; }}
 .n {{ color:var(--muted); font-size:12px; }} .err {{ color:var(--accent); }}
+.zh {{ color:#c9cfdc; font-size:14px; margin-top:2px; }}
 </style></head><body><div class="wrap">
 <h1>每日新闻 <span>{day}</span></h1>
-<div class="meta">抓取于 {time.strftime("%Y-%m-%d %H:%M", time.localtime(data["time"]))} · 来源 Google 新闻 · <a href="/#news">返回日期列表</a></div>
+<div class="meta">抓取于 {time.strftime("%Y-%m-%d %H:%M", time.localtime(data["time"]))} · 各国本地媒体原文 + 中文机器翻译 · <a href="/#news">返回日期列表</a></div>
 <div class="grid">{"".join(cards)}</div></div></body></html>"""
 
 
@@ -346,9 +414,12 @@ def fetch_news(day=None):
     """Fetch every group, save <day>.json/.html and record the day's status in index.json."""
     day = day or time.strftime("%Y-%m-%d")
     groups, errors = [], []
-    for name, url in NEWS_FEEDS:
+    for name, sources in NEWS_FEEDS:
         try:
-            groups.append({"title": name, "items": fetch_news_group(url)})
+            items, errs = fetch_news_group(sources)
+            groups.append({"title": name, "sources": [n for n, _, _ in sources], "items": items,
+                           "error": "; ".join(errs) or None})
+            errors += [f"{name} {x}" for x in errs]
         except Exception as e:  # keep the other groups
             groups.append({"title": name, "items": [], "error": str(e)}); errors.append(f"{name}: {e}")
     data = {"date": day, "time": int(time.time()), "groups": groups}

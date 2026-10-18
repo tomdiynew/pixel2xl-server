@@ -318,7 +318,7 @@ async function loadNews() {
         : `<div class="day"><div>${title}${err}</div><div class="note">${st}</div></div>`;
     }).join('');
     $('newserr').hidden = true;
-    $('newsfoot').textContent = `每天早上 ${n.hour}:00 自动抓取 世界 / 中国 / 韩国 / 日本 / 越南 / 欧洲 各 20 条 · 来源 Google 新闻`;
+    $('newsfoot').textContent = `每天早上 ${n.hour}:00 自动抓取 世界（BBC、卫报、纽约时报）/ 中国 / 韩国 / 日本 / 越南 / 欧洲 各 20 条 · 本国媒体原文 + 中文翻译`;
   } catch (e) { $('newserr').hidden = false; $('newserr').textContent = '新闻列表加载失败'; }
 }
 
