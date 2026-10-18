@@ -4,17 +4,24 @@
 GET /             dashboard page
 GET /api/status   current readings (JSON)
 GET /api/history  last 24h of 1-minute samples (JSON)
+GET /api/news     world/China/Korea/Japan/Vietnam/Europe headlines (20 each, links),
+                  fetched from Google News RSS every day at 07:00 local time (JSON)
+GET /api/markets  index / commodity quotes from Sina (cached 30s) and
+                  Brazilian beef/soy from CEPEA (daily, cached 1h) (JSON)
 
 Root-only data (Wi-Fi SSID, IP, charge control) comes from ~/.phonestat.json,
 written every 15s by the phonectl root service.
 """
+import html
 import json
 import os
+import re
 import subprocess
 import threading
 import time
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.request import Request, urlopen
 
 PORT = int(os.environ.get("WEBSTAT_PORT", "8080"))
 HOME = os.path.expanduser("~")
@@ -125,6 +132,210 @@ STATIC = {"model": getprop("ro.product.model"), "android": getprop("ro.build.ver
           "kernel": os.uname().release, "arch": os.uname().machine}
 
 
+# (group, [(sina code, unit)]); Sina supplies the Chinese names
+MARKETS = [
+    ("美股", [("gb_$dji", ""), ("gb_$inx", ""), ("gb_$ixic", "")]),
+    ("A 股", [("sh000001", ""), ("sz399001", ""), ("sz399006", ""), ("sh000300", "")]),
+    ("港股", [("hkHSI", ""), ("hkHSTECH", ""), ("hkHSCEI", "")]),
+    ("贵金属", [("hf_XAU", "美元/盎司"), ("hf_XAG", "美元/盎司"), ("hf_GC", "美元/盎司"), ("hf_SI", "美元/盎司"),
+               ("hf_XPT", "美元/盎司"), ("hf_XPD", "美元/盎司"), ("nf_AU0", "元/克"), ("nf_AG0", "元/千克")]),
+    ("能源", [("hf_CL", "美元/桶"), ("hf_OIL", "美元/桶"), ("hf_NG", "美元/百万英热")]),
+    ("农产品", [("hf_C", "美分/蒲式耳"), ("hf_S", "美分/蒲式耳"), ("hf_W", "美分/蒲式耳")]),
+    ("巴西农产品", [("cepea:boi-gordo", "雷亚尔/arroba (15 kg)"), ("cepea:soja", "雷亚尔/袋 (60 kg)")]),
+    ("汇率", [("fx_susdcny", "")]),
+]
+# CEPEA (USP) daily indicators; the first table on each page is the headline one
+CEPEA_NAMES = {"boi-gordo": "巴西肥牛（圣保罗）", "soja": "巴西大豆（巴拉那瓜港）"}
+CEPEA_TTL = 3600
+_cepea = {}
+MARKET_TTL = 30
+_markets = {"ts": 0, "data": None}
+_markets_lock = threading.Lock()
+
+
+def _f(x):
+    try:
+        return float(x)
+    except (TypeError, ValueError):
+        return None
+
+
+def parse_sina(code, f):
+    """-> (name, price, prev, high, low, quote time) or None. Field layouts differ per market."""
+    try:
+        if code.startswith("gb_"):
+            return f[0], _f(f[1]), _f(f[26]), _f(f[6]), _f(f[7]), f[3][5:16]
+        if code.startswith(("sh", "sz")):
+            price = _f(f[3]) or _f(f[2])  # 0 before the open
+            return f[0], price, _f(f[2]), _f(f[4]), _f(f[5]), f[30][5:] + " " + f[31][:5]
+        if code.startswith("hk"):
+            return f[1], _f(f[6]), _f(f[3]), _f(f[4]), _f(f[5]), f[17][5:].replace("/", "-") + " " + f[18]
+        if code.startswith("hf_"):
+            return re.sub(r"（现货.+）", "（现货）", f[13]), _f(f[0]), _f(f[7]), _f(f[4]), _f(f[5]), f[12][5:] + " " + f[6][:5]
+        if code.startswith("nf_"):  # Shanghai futures main contract; prev = last settlement
+            return "沪" + f[0][1] + "（主力）", _f(f[8]), _f(f[10]), _f(f[3]), _f(f[4]), f[17][5:] + " " + f[1][:2] + ":" + f[1][2:4]
+        if code.startswith("fx_"):
+            return "美元/人民币", _f(f[8]), _f(f[3]), _f(f[6]), _f(f[7]), f[17][5:] + " " + f[0][:5]
+    except IndexError:
+        pass
+    return None
+
+
+def fetch_cepea(slug):
+    """-> same tuple as parse_sina, from the latest two rows of the indicator table."""
+    req = Request(f"https://www.cepea.org.br/br/indicador/{slug}.aspx", headers={
+        # a bare UA gets a 403
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+                      "(KHTML, like Gecko) Chrome/130.0 Safari/537.36", "Accept-Language": "pt-BR"})
+    with urlopen(req, timeout=15) as r:
+        page = r.read().decode("utf-8", "replace")
+    table = re.search(r"<table.*?</table>", page, re.S).group(0)
+    rows = []
+    for tr in re.findall(r"<tr.*?</tr>", table, re.S):
+        cells = [html.unescape(re.sub(r"<[^>]+>", "", c)).strip() for c in re.findall(r"<td.*?</td>", tr, re.S)]
+        if len(cells) >= 2 and re.match(r"\d\d/\d\d/\d{4}", cells[0]):
+            rows.append((cells[0], float(cells[1].replace(".", "").replace(",", "."))))
+    (day, price), (_, prev) = rows[0], rows[1]
+    return CEPEA_NAMES[slug], price, prev, None, None, day[3:5] + "-" + day[:2] + " 收盘"
+
+
+def cepea(slug):
+    """Daily data: refetch hourly, keep the last good value if the site is down."""
+    c = _cepea.get(slug)
+    if not c or time.time() - c[0] > CEPEA_TTL:
+        try:
+            _cepea[slug] = c = (time.time(), fetch_cepea(slug))
+        except Exception as e:
+            print("cepea error:", slug, e, flush=True)
+            if c:
+                _cepea[slug] = c = (time.time() - CEPEA_TTL + 300, c[1])  # retry in 5 min
+    return c[1] if c else None
+
+
+def fetch_markets():
+    codes = [c for _, items in MARKETS for c, _ in items if not c.startswith("cepea:")]
+    req = Request("https://hq.sinajs.cn/list=" + ",".join(codes),
+                  headers={"Referer": "https://finance.sina.com.cn", "User-Agent": "Mozilla/5.0"})
+    with urlopen(req, timeout=8) as r:
+        raw = r.read().decode("gbk", "replace")
+    quotes = {m.group(1): parse_sina(m.group(1), m.group(2).split(","))
+              for m in re.finditer(r'hq_str_([^=]+)="([^"]*)"', raw)}
+    for _, items in MARKETS:
+        for code, _ in items:
+            if code.startswith("cepea:"):
+                quotes[code] = cepea(code[6:])
+    groups = []
+    for title, items in MARKETS:
+        rows = []
+        for code, unit in items:
+            q = quotes.get(code)
+            if not q or q[1] is None:
+                continue
+            name, price, prev, high, low, qt = q
+            chg = price - prev if prev else None
+            rows.append({"code": code, "name": name, "price": price, "prev": prev, "high": high, "low": low,
+                         "chg": chg, "pct": chg / prev * 100 if chg is not None else None,
+                         "unit": unit, "time": qt})
+        groups.append({"title": title, "items": rows})
+    return groups
+
+
+def markets():
+    """Shared 30s cache: every viewer polling Sina would swamp the single core."""
+    with _markets_lock:
+        if time.time() - _markets["ts"] > MARKET_TTL:
+            try:
+                _markets["data"] = fetch_markets()
+                _markets["error"] = None
+            except Exception as e:  # keep serving the last good quotes
+                _markets["error"] = str(e)
+            _markets["ts"] = time.time()
+        return {"time": int(_markets["ts"]), "groups": _markets["data"] or [], "error": _markets.get("error")}
+
+
+# ---- daily news: Google News RSS (Simplified Chinese edition), 20 headlines per group
+GN = "hl=zh-CN&gl=CN&ceid=CN:zh-Hans"
+NEWS_FEEDS = [
+    ("世界", f"https://news.google.com/rss/headlines/section/topic/WORLD?{GN}"),
+    ("中国", f"https://news.google.com/rss/headlines/section/topic/NATION?{GN}"),
+    ("韩国", f"https://news.google.com/rss/search?q=%E9%9F%A9%E5%9B%BD+when:1d&{GN}"),
+    ("日本", f"https://news.google.com/rss/search?q=%E6%97%A5%E6%9C%AC+when:1d&{GN}"),
+    ("越南", f"https://news.google.com/rss/search?q=%E8%B6%8A%E5%8D%97+when:1d&{GN}"),
+    ("欧洲", f"https://news.google.com/rss/search?q=%E6%AC%A7%E6%B4%B2+when:1d&{GN}"),
+]
+NEWS_PER_GROUP = 20
+NEWS_HOUR = 7
+NEWS_FILE = os.path.join(os.path.expanduser("~"), ".news.json")
+_news_lock = threading.Lock()
+
+
+def fetch_news_group(url):
+    import xml.etree.ElementTree as ET
+    from email.utils import parsedate_to_datetime
+    raw = urlopen(Request(url, headers={"User-Agent": "Mozilla/5.0"}), timeout=20).read()
+    items, seen = [], set()
+    for it in ET.fromstring(raw).iter("item"):
+        title = (it.findtext("title") or "").strip()
+        src = (it.findtext("source") or "").strip()
+        if src and title.endswith(" - " + src):        # Google appends " - <source>"
+            title = title[: -len(src) - 3]
+        if not title or title in seen:
+            continue
+        seen.add(title)
+        try:
+            ts = int(parsedate_to_datetime(it.findtext("pubDate")).timestamp())
+        except Exception:
+            ts = None
+        items.append({"title": title, "link": it.findtext("link") or "", "source": src, "time": ts})
+        if len(items) >= NEWS_PER_GROUP:
+            break
+    return items
+
+
+def fetch_news():
+    groups, errors = [], []
+    for name, url in NEWS_FEEDS:
+        try:
+            groups.append({"title": name, "items": fetch_news_group(url)})
+        except Exception as e:  # keep the other groups
+            groups.append({"title": name, "items": []}); errors.append(f"{name}: {e}")
+    data = {"time": int(time.time()), "groups": groups, "error": "; ".join(errors) or None}
+    if any(g["items"] for g in groups):
+        with _news_lock:
+            with open(NEWS_FILE + ".tmp", "w") as f:
+                json.dump(data, f, ensure_ascii=False)
+            os.replace(NEWS_FILE + ".tmp", NEWS_FILE)
+    return data
+
+
+def news():
+    with _news_lock:
+        try:
+            with open(NEWS_FILE) as f:
+                return json.load(f)
+        except (OSError, ValueError):
+            return {"time": 0, "groups": [], "error": "尚未抓取"}
+
+
+def news_loop():
+    """Fetch at 07:00 local time every day (and at start if today's 07:00 batch is missing)."""
+    # the dashboard is started without Termux's login env: take the phone's time zone
+    tz = getprop("persist.sys.timezone")
+    if tz:
+        os.environ["TZ"] = tz; time.tzset()
+    while True:
+        now = time.time(); lt = time.localtime(now)
+        today7 = time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, NEWS_HOUR, 0, 0, 0, 0, -1))
+        due = today7 if now >= today7 else today7 - 86400      # the latest 07:00 that has passed
+        if news().get("time", 0) < due:
+            for attempt in range(6):                           # retry for ~30 min if offline
+                if any(g["items"] for g in fetch_news()["groups"]):
+                    break
+                time.sleep(300)
+        nxt = today7 + 86400 if now >= today7 else today7
+        time.sleep(max(60, nxt - time.time()))
+
+
 def status():
     up = float(read("/proc/uptime", "0").split()[0])
     mem = {}
@@ -220,6 +431,10 @@ class Handler(BaseHTTPRequestHandler):
             with sampler.lock:
                 data = list(sampler.history)
             self._send(200, json.dumps(data).encode(), "application/json")
+        elif path == "/api/news":
+            self._send(200, json.dumps(news(), ensure_ascii=False).encode(), "application/json; charset=utf-8")
+        elif path == "/api/markets":
+            self._send(200, json.dumps(markets(), ensure_ascii=False).encode(), "application/json; charset=utf-8")
         elif path in ("/", "/index.html"):
             with open(os.path.join(HERE, "index.html"), "rb") as f:
                 self._send(200, f.read(), "text/html; charset=utf-8")
@@ -233,5 +448,6 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     threading.Thread(target=tick_loop, daemon=True).start()
     threading.Thread(target=history_loop, daemon=True).start()
+    threading.Thread(target=news_loop, daemon=True).start()
     print(f"webstat listening on 0.0.0.0:{PORT}", flush=True)
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()

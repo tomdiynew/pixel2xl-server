@@ -1,0 +1,11 @@
+# Cloudflare tunnel "pixel": https://pixel.tomexp.com -> dashboard.
+# Credentials (<id>.json) live only on the phone in ~/.cloudflared (created on the
+# Redmi with its cert.pem, copied over, never in git).
+tunnel: 579f8ad4-fc3d-4645-8a2c-c25c95f5d8a6
+credentials-file: /data/data/com.termux/files/home/.cloudflared/579f8ad4-fc3d-4645-8a2c-c25c95f5d8a6.json
+# QUIC/UDP is often throttled on hotspots; http2 runs over TCP 443
+protocol: http2
+ingress:
+  - hostname: pixel.tomexp.com
+    service: http://127.0.0.1:8080
+  - service: http_status:404

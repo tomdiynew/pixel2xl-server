@@ -55,6 +55,13 @@ web() {
     [ -s ~/.config/neofetch/config.conf ] || neofetch --print_config > ~/.config/neofetch/config.conf 2>/dev/null
     sed -i "s/^ascii_distro=.*/ascii_distro=\"android_small\"/" ~/.config/neofetch/config.conf
     pkill -f "python3 .*webstat/[s]erver.py"; echo "dashboard restarting (supervisor relaunches it within 30s)"'
+  # Cloudflare tunnel -> https://pixel.tomexp.com. The credentials JSON stays on the phone.
+  # cloudflared is missing on the packages-cf mirror, so use the same mirror as the Redmi.
+  "${SSH[@]}" 'mkdir -p ~/.cloudflared; command -v cloudflared >/dev/null || {
+      echo "deb https://ftp.agdsn.de/termux/termux-main stable main" > $PREFIX/etc/apt/sources.list
+      apt update >/dev/null 2>&1; apt install -y cloudflared >/dev/null 2>&1; }'
+  scp -q -P 8022 termux/cloudflared/config.yml "$PHONE":.cloudflared/config.yml
+  "${SSH[@]}" 'pkill -f "bin/[c]loudflared " || true'   # pixelsrv (ROM) restarts it within 30 s
 }
 
 case "${1:-}" in

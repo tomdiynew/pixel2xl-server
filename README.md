@@ -4,7 +4,7 @@ A Google Pixel 2 XL (taimen, Snapdragon 835) set up as an always-on LAN mini ser
 
 This repo is separate from `redmi-note2-server`. The Termux dashboard and boot-intro files started as copies from that repo and are now maintained here on their own.
 
-- **Dashboard**: http://192.168.43.202:8080
+- **Dashboard**: http://192.168.43.202:8080, public at **https://pixel.tomexp.com** (Cloudflare tunnel `pixel`). The pages are server status, market quotes (same as the Redmi's 老汉移动信息网), and **每日新闻**: 20 headlines each for world, China, Korea, Japan, Vietnam and Europe, with links, fetched from Google News RSS every day at 07:00 local time.
 - **SSH**: `ssh -p 8022 192.168.43.202` (Termux, key auth)
 - **Charge limiter**: the battery stays between 50% and 60%
 - **Boot animation**: custom picture, LOADING progress bar and boot sound
