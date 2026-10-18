@@ -84,6 +84,11 @@
   .news a { color: inherit; text-decoration: none; }
   .news a:hover { text-decoration: underline; }
   .news .note { color: var(--muted); font-size: 12px; }
+  .news .day { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+  .news .day:first-child { border-top: 0; }
+  .news .day b { font-variant-numeric: tabular-nums; }
+  .news .st-ok { color: var(--good); } .news .st-partial { color: #e0a800; }
+  .news .st-error, .news .st-missing { color: var(--accent); } .news .st-pending { color: var(--muted); }
 </style>
 </head>
 <body>
@@ -174,7 +179,7 @@
   </div>
 
   <div id="page-news" hidden>
-    <div class="grid news" id="news"><section class="card"><h2>新闻</h2><div class="sub">加载中…</div></section></div>
+    <section class="card news"><h2>每日新闻 · 按日期</h2><div id="news"><div class="sub">加载中…</div></div></section>
     <div class="err" id="newserr" hidden></div>
     <footer id="newsfoot">每天早上 7:00 自动抓取 · 来源 Google 新闻</footer>
   </div>
@@ -300,13 +305,21 @@ async function markets() {
 const esc = t => String(t).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
 async function loadNews() {
   try {
-    const n = await (await fetch('/api/news', {cache: 'no-store'})).json();
-    if (n.groups.length) $('news').innerHTML = n.groups.map(g => `<section class="card"><h2>${esc(g.title)} · ${g.items.length} 条</h2><ol>${
-      g.items.map(i => `<li><a href="${esc(i.link)}" target="_blank" rel="noopener">${esc(i.title)}</a>
-        <div class="note">${esc(i.source)}${i.time ? ' · ' + new Date(i.time*1000).toLocaleString('zh-CN', {month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit'}) : ''}</div></li>`).join('')}</ol></section>`).join('');
-    $('newserr').hidden = !n.error; if (n.error) $('newserr').textContent = n.error;
-    $('newsfoot').textContent = `每天早上 7:00 自动抓取 · 来源 Google 新闻` + (n.time ? ` · 本批抓取于 ${new Date(n.time*1000).toLocaleString('zh-CN')}` : '');
-  } catch (e) { $('newserr').hidden = false; $('newserr').textContent = '新闻加载失败'; }
+    const n = await (await fetch('/api/news/days', {cache: 'no-store'})).json();
+    const label = {ok: '已生成', partial: '部分失败', error: '抓取失败', pending: '尚未生成', missing: '没有生成'};
+    const wd = d => '日一二三四五六'[new Date(d + 'T12:00:00').getDay()];
+    $('news').innerHTML = n.days.map(d => {
+      const title = `<b>${d.date}</b> 星期${wd(d.date)}`;
+      const info = d.count ? `${d.count} 条` : '';
+      const st = `<span class="st-${d.status}">${label[d.status] || d.status}</span>`;
+      const err = d.error ? `<div class="note">${esc(d.error)}</div>` : '';
+      return d.url
+        ? `<a class="day" href="${d.url}" target="_blank"><div>${title}${err}</div><div class="note">${st} · ${info} ›</div></a>`
+        : `<div class="day"><div>${title}${err}</div><div class="note">${st}</div></div>`;
+    }).join('');
+    $('newserr').hidden = true;
+    $('newsfoot').textContent = `每天早上 ${n.hour}:00 自动抓取 世界 / 中国 / 韩国 / 日本 / 越南 / 欧洲 各 20 条 · 来源 Google 新闻`;
+  } catch (e) { $('newserr').hidden = false; $('newserr').textContent = '新闻列表加载失败'; }
 }
 
 // only poll what is on screen: the phone is a single 800 MHz core
