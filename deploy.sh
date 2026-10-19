@@ -49,6 +49,7 @@ bootanim() {
 web() {
   "${SSH[@]}" 'mkdir -p ~/webstat ~/bin ~/.termux ~/.config/neofetch'
   scp -q -P 8022 termux/webstat/server.py termux/webstat/index.html "$PHONE":webstat/
+  scp -q -r -P 8022 termux/webstat/icons "$PHONE":webstat/
   scp -q -P 8022 termux/bin/boot-intro "$PHONE":bin/
   scp -q -P 8022 termux/dot-termux/termux.properties "$PHONE":.termux/termux.properties
   "${SSH[@]}" 'chmod 700 ~/bin/boot-intro ~/webstat/server.py
